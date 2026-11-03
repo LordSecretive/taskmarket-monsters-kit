@@ -1,0 +1,349 @@
+<!doctype html><html lang="en-GB"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taskmarket Monsters card kit</title>
+<!-- Taskmarket Monsters, Set 1: the card kit. Every card in the set is drawn by this page, so the frame, the type, the
+     foil and the loop are identical; the maker brings the monster (card.js and their art). The holo method is the common
+     one: a tilt, a band of light that follows it, and a rainbow seen through a foil pattern, only where the light is.
+     Our own code (MIT). Modes: open it to edit and tilt it (mouse or phone); card.html?render=1 is the frame-exact mode
+     render.py drives, where window.__seek(t) draws the frame at t of the 6 s loop from nothing. -->
+<style>
+@font-face { font-family: Instrument; src: url(fonts/InstrumentSerif-Regular.ttf); }
+@font-face { font-family: Instrument; font-style: italic; src: url(fonts/InstrumentSerif-Italic.ttf); }
+@font-face { font-family: Inter; src: url(fonts/InterTight-Regular.ttf); }
+:root { --ground: #16110F; --paper: #F7F3EF; --ink: #2C1F1A; --mute: #A89A91; --pink: #E74079; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ground); color: var(--paper); font: 15px/1.4 Inter, system-ui, sans-serif; }
+body.render canvas { display: block; width: 1080px; height: 1512px; }
+body.render #panel, body.render #hint { display: none; }
+main { display: flex; gap: 32px; padding: 24px; align-items: flex-start; justify-content: center; flex-wrap: wrap; min-height: 100vh; }
+#stage { perspective: 1400px; }
+#stage canvas { touch-action: none; display: block; width: min(86vw, calc((100vh - 48px) * 1080 / 1512), 600px); height: auto; border-radius: 4.4%; transition: transform 0.08s linear; box-shadow: 0 30px 80px rgba(0,0,0,0.55); }
+body.render #stage { perspective: none; }
+body.render #stage canvas { width: 1080px; border-radius: 0; box-shadow: none; transition: none; }
+#panel { width: min(86vw, 340px); display: grid; gap: 10px; }
+#panel h1 { font: 400 30px/1.1 Instrument; margin: 0 0 4px; }
+#panel h1 em { color: var(--pink); }
+#panel label { display: grid; gap: 4px; font-size: 13px; color: var(--mute); }
+#panel input, #panel select { font: 15px Inter, sans-serif; padding: 8px 10px; border-radius: 8px; border: 1px solid #3A2F2B; background: #221A17; color: var(--paper); }
+#panel input[type=color] { padding: 2px; height: 38px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+button { font: 15px Inter, sans-serif; padding: 10px 14px; border-radius: 10px; border: 0; background: var(--paper); color: var(--ink); cursor: pointer; }
+button.pink { background: var(--pink); color: #fff; }
+button:disabled { opacity: 0.5; cursor: default; }
+#status { font-size: 13px; color: var(--mute); min-height: 1.4em; }
+#hint { font-size: 13px; color: var(--mute); text-align: center; margin-top: 10px; }
+</style></head><body>
+<main>
+  <div><div id="stage"><canvas id="card" width="1080" height="1512"></canvas></div><div id="hint">Move your mouse over the card, or tap Tilt with my phone.</div></div>
+  <div id="panel">
+    <h1>Taskmarket <em>Monsters</em>, Set 1</h1>
+    <div id="made-for" style="font-size:13px;color:var(--mute)">Made for Chrome or Edge on a computer.</div>
+    <label>Monster's name <input id="f-name"></label>
+    <label>Number and task <select id="f-number"></select></label>
+    <label>Move's name <input id="f-moveName"></label>
+    <label>Move's line, 12 words or fewer, up to 2 lines <input id="f-moveLine"></label>
+    <label>Accent ink <input id="f-accent" type="color"></label>
+    <label>Foil pattern <select id="f-foil"></select></label>
+    <label>Your monster (a square PNG or JPG, 1024 x 1024 or larger) <input id="f-art" type="file" accept="image/png,image/jpeg"></label>
+    <label>Custom foil mask, optional (greyscale, white = foil) <input id="f-mask" type="file" accept="image/png,image/jpeg"></label>
+    <div class="row"><button id="b-loop">Play the loop</button><button id="b-gyro">Tilt with my phone</button></div>
+    <div class="row"><button id="b-export" class="pink">Export MP4</button><button id="b-still">Save still PNG</button></div>
+    <div id="status" aria-live="polite"></div>
+  </div>
+</main>
+<svg width="0" height="0" style="position:absolute"><filter id="lum" color-interpolation-filters="sRGB"><feColorMatrix type="luminanceToAlpha"/></filter></svg>
+<script src="card.js"></script>
+<script src="vendor/mp4-muxer.js"></script>
+<script>
+const W = 1080, H = 1512, T = 6, FPS = 30, FRAMES = T * FPS, STILL_T = 1.3;   // the still: mid-sweep, so it shows the foil
+const K = { ground: '#16110F', card: '#F7F3EF', ink: '#2C1F1A', pink: '#E74079' };
+const WIN = { x: 40, y: 140, w: 1000, h: 1010, r: 24 };
+const TASKS = ['Logo design', 'Bug hunting', 'Translation', 'Research reports', 'Data cleaning', 'Copywriting', 'Video editing',
+  'Code review', 'Speed benchmarks', 'Illustration', 'Game design', 'Market research'];
+const FOILS = ['etched', 'cracked-ice', 'stars', 'scales', 'waves', 'tiles', 'custom'];
+const QS = new URLSearchParams(location.search), RENDER = QS.has('render'), EXAMPLE = QS.has('example');
+if (RENDER) document.body.classList.add('render');
+
+const cv = document.getElementById('card'), g = cv.getContext('2d');
+const card = Object.assign({ name: '', number: 1, task: '', moveName: '', moveLine: '', accent: '#3A7BD5', foil: 'etched', art: '', mask: '' }, window.CARD);
+if (!window.CARD) console.error("card.js did not load. Check its quotes and commas: an apostrophe inside single quotes breaks it, so put that line in double quotes.");
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const eio = u => { u = clamp(u); return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+const off = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+// ---- the foil patterns: alpha masks the size of the art window, made once (white = foil) ---------------------------
+const PW = WIN.w + 40, PH = WIN.h + 40;   // a little larger than the window, so the pattern can drift with the tilt
+function makePattern(kind) {
+  const c = off(PW, PH), p = c.getContext('2d'), R = rng(1301);
+  p.strokeStyle = p.fillStyle = '#fff';
+  if (kind === 'etched') {
+    p.lineWidth = 2.8;   // heavier lines, so every pattern reads as strongly as cracked ice
+    for (let i = -PH; i < PW + PH; i += 9) { p.globalAlpha = 0.55 + 0.45 * R(); p.beginPath(); p.moveTo(i, 0); p.lineTo(i - PH * 0.58, PH); p.stroke(); }
+    p.lineWidth = 1.6; p.globalAlpha = 0.45;
+    for (let i = -PH; i < PW + PH; i += 23) { p.beginPath(); p.moveTo(i, 0); p.lineTo(i + PH * 0.58, PH); p.stroke(); }
+  } else if (kind === 'cracked-ice') {
+    const pts = Array.from({ length: 40 }, () => [R() * PW, R() * PH, 0.1 + 0.8 * R()]);   // fewer, bolder facets, so it reads at phone size
+    const img = p.createImageData(PW, PH), d = img.data;
+    for (let y = 0; y < PH; y += 1) for (let x = 0; x < PW; x += 1) {
+      let a = 1e9, b = 1e9, ai = 0;
+      for (let i = 0; i < pts.length; i++) { const dx = x - pts[i][0], dy = y - pts[i][1], q = dx * dx + dy * dy; if (q < a) { b = a; a = q; ai = i; } else if (q < b) b = q; }
+      const edge = Math.sqrt(b) - Math.sqrt(a), v = Math.max(pts[ai][2], edge < 3.5 ? 1 : 0);
+      const k = (y * PW + x) * 4; d[k] = d[k + 1] = d[k + 2] = 255; d[k + 3] = v * 255;
+    }
+    p.putImageData(img, 0, 0);
+  } else if (kind === 'stars') {
+    for (let i = 0; i < 420; i++) {
+      const x = R() * PW, y = R() * PH, s = 3 + Math.pow(R(), 3) * 16; p.globalAlpha = 0.5 + 0.5 * R();
+      p.beginPath(); for (let j = 0; j < 8; j++) { const ang = j * Math.PI / 4, rad = j % 2 ? s * 0.22 : s; p.lineTo(x + Math.cos(ang) * rad, y + Math.sin(ang) * rad); } p.closePath(); p.fill();
+    }
+  } else if (kind === 'scales') {
+    p.lineWidth = 5.5; const r = 34;
+    for (let row = 0, y = -r; y < PH + r; y += r * 0.62, row++) for (let x = (row % 2) * r - r; x < PW + r; x += r * 2) {
+      p.globalAlpha = 0.45 + 0.55 * R(); p.beginPath(); p.arc(x, y, r, 0.15 * Math.PI, 0.85 * Math.PI); p.stroke();
+    }
+  } else if (kind === 'waves') {
+    p.lineWidth = 4;
+    for (let y = -40; y < PH + 40; y += 13) { p.globalAlpha = 0.45 + 0.55 * R(); p.beginPath(); for (let x = 0; x <= PW; x += 8) p.lineTo(x, y + 10 * Math.sin(x / 55 + y / 90) + 5 * Math.sin(x / 23)); p.stroke(); }
+  } else {   // tiles: the task atom, rounded squares
+    const s = 26, gap = 10;
+    for (let y = 4; y < PH; y += s + gap) for (let x = 4; x < PW; x += s + gap) { p.globalAlpha = 0.25 + 0.75 * R(); rr(p, x, y, s, s, 6); p.fill(); }
+  }
+  return c;
+}
+function maskFromImage(im) {   // a maker's greyscale mask: brightness becomes foil, through an SVG luminance filter
+  const c = off(PW, PH), p = c.getContext('2d'), s = Math.max(PW / im.naturalWidth, PH / im.naturalHeight);
+  p.filter = 'url(#lum)'; p.drawImage(im, (PW - im.naturalWidth * s) / 2, (PH - im.naturalHeight * s) / 2, im.naturalWidth * s, im.naturalHeight * s);
+  return c;
+}
+
+// ---- state ------------------------------------------------------------------------------------------------------
+let art = null, maskImg = null, pattern = null;
+const loadImg = src => new Promise((res, rej) => { if (!src) return res(null); const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Could not load ' + src)); im.src = src; });
+function rebuildPattern() { pattern = card.foil === 'custom' ? (maskImg ? maskFromImage(maskImg) : makePattern('etched')) : makePattern(card.foil); }
+
+// ---- the view at a moment: a virtual tilt, the light band's place on the window's diagonal, the sheen's hue ----------
+// The loop (render and export): the tilt follows whole cycles of the 6 s loop, and a band of light sweeps across the
+// art and back, top left to bottom right in the first 3 s and back in the next 3 s (about 1.4 s to cross each way). It
+// is off the window at 0, 3 and 6 s, so frame 0 and frame 180 match and a phone viewer never waits long for light.
+function loopView(t) {
+  const tau = 2 * Math.PI * t / T;
+  return { tx: 0.55 * Math.sin(tau), ty: 0.35 * Math.sin(2 * tau), band: t < 3 ? -0.45 + 1.9 * clamp(t / 2.6) : 1.45 - 1.9 * clamp((t - 3) / 2.6), hueQ: 40 * Math.sin(tau), hueB: 200, tau };
+}
+function tiltView(tx, ty, tau) {   // live: the light follows your tilt
+  return { tx, ty, band: 0.5 + 0.62 * clamp((tx + ty) / 1.3, -1, 1), hueQ: 70 * tx, hueB: 200 + 90 * ty, tau };
+}
+
+// ---- drawing ----------------------------------------------------------------------------------------------------
+const fc = off(WIN.w, WIN.h), f = fc.getContext('2d');
+function rainbow(c, hue) {
+  const gr = c.createLinearGradient(0, WIN.h, WIN.w, 0);
+  for (let i = 0; i <= 12; i++) gr.addColorStop(i / 12, `hsl(${hue + i * 60}, 96%, 62%)`);
+  c.fillStyle = gr; c.fillRect(0, 0, WIN.w, WIN.h);
+}
+function bandMask(c, band, spread, peak) {   // a soft band across the window's diagonal, centred at band (0 to 1)
+  const gr = c.createLinearGradient(0, 0, WIN.w, WIN.h);
+  [[-2.5, 0], [-1, 0.45], [0, 1], [1, 0.45], [2.5, 0]].forEach(([k, a]) => gr.addColorStop(clamp(band + k * spread), `rgba(255,255,255,${a * peak})`));
+  c.fillStyle = gr; c.fillRect(0, 0, WIN.w, WIN.h);
+}
+const SPARKS = (() => { const R = rng(77); return Array.from({ length: 18 }, () => ({ x: R() * WIN.w, y: R() * WIN.h, k: 1 + Math.floor(R() * 3), ph: R() * 6.283, s: 10 + R() * 22 })); })();
+
+function drawFoil(v) {
+  const px = v.tx * 14, py = v.ty * 14;   // the pattern drifts against the art: the foil sits above the print
+  // 1 · a quiet sheen everywhere, so the foil glints between sweeps
+  f.globalCompositeOperation = 'source-over'; f.clearRect(0, 0, WIN.w, WIN.h);
+  rainbow(f, v.hueQ); f.globalCompositeOperation = 'destination-in'; f.drawImage(pattern, -20 + px, -20 + py);
+  g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.2; g.drawImage(fc, WIN.x, WIN.y);
+  // 2 · the band of light: the rainbow through the pattern, only where the light is
+  if (v.band > -0.4 && v.band < 1.4) {   // off the window beyond these (the band's edge is 0.23 wide), so the loop's ends match exactly
+    f.globalCompositeOperation = 'source-over'; f.clearRect(0, 0, WIN.w, WIN.h);
+    rainbow(f, v.hueB + 120 * v.band); f.globalCompositeOperation = 'destination-in'; f.drawImage(pattern, -20 + px, -20 + py);
+    f.globalCompositeOperation = 'destination-in'; bandMask(f, v.band, 0.09, 1);
+    // brighten for dark art, and tint for light art (screen alone washes out to white on cream paper)
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.85; g.drawImage(fc, WIN.x, WIN.y);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.55; g.drawImage(fc, WIN.x, WIN.y);
+    // the glare: a wider, softer white band over everything
+    f.globalCompositeOperation = 'source-over'; f.clearRect(0, 0, WIN.w, WIN.h); bandMask(f, v.band, 0.15, 0.7);
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 1; g.drawImage(fc, WIN.x, WIN.y);
+  }
+  // 3 · glints: small 4-point stars that twinkle on whole cycles of the loop
+  g.globalCompositeOperation = 'screen';
+  SPARKS.forEach(s => {
+    const a = Math.pow(Math.max(0, Math.sin(s.k * v.tau + s.ph)), 14); if (a < 0.02) return;
+    const x = WIN.x + s.x + px, y = WIN.y + s.y + py, r = s.s * (0.6 + 0.4 * a);
+    g.globalAlpha = a; g.fillStyle = '#FFFFFF';
+    g.beginPath(); for (let j = 0; j < 8; j++) { const ang = j * Math.PI / 4, rad = j % 2 ? r * 0.12 : r; g.lineTo(x + Math.cos(ang) * rad, y + Math.sin(ang) * rad); } g.closePath(); g.fill();
+  });
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+}
+
+function fitFont(text, font, px, maxW) { let s = px; g.font = `${font.replace('PX', s)}`; while (g.measureText(text).width > maxW && s > 20) { s -= 1; g.font = font.replace('PX', s); } return s; }
+function wrap(text, maxW) { const words = text.split(/\s+/), lines = ['']; words.forEach(w => { const t = (lines[lines.length - 1] + ' ' + w).trim(); if (g.measureText(t).width > maxW && lines[lines.length - 1]) lines.push(w); else lines[lines.length - 1] = t; }); return lines; }
+
+function draw(v) {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.fillStyle = K.ground; g.fillRect(0, 0, W, H);
+  g.fillStyle = K.card; rr(g, 0, 0, W, H, 48); g.fill();
+  // the art window: the monster, a touch larger than the window so it can move a little with the tilt
+  g.save(); rr(g, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r); g.clip();
+  g.fillStyle = '#EDE6DD'; g.fillRect(WIN.x, WIN.y, WIN.w, WIN.h);
+  if (art) {
+    const s = Math.max((WIN.w + 24) / art.naturalWidth, (WIN.h + 24) / art.naturalHeight), aw = art.naturalWidth * s, ah = art.naturalHeight * s;
+    g.drawImage(art, WIN.x + (WIN.w - aw) / 2 - v.tx * 8, WIN.y + (WIN.h - ah) / 2 - v.ty * 8, aw, ah);
+  } else {
+    g.fillStyle = K.ink; g.globalAlpha = 0.35; g.font = '40px Inter'; g.textAlign = 'center'; g.fillText('Your monster here', WIN.x + WIN.w / 2, WIN.y + WIN.h / 2); g.globalAlpha = 1;
+  }
+  drawFoil(v);
+  g.restore();
+  g.lineWidth = 4; g.strokeStyle = K.ink; rr(g, WIN.x + 2, WIN.y + 2, WIN.w - 4, WIN.h - 4, WIN.r - 2); g.stroke();
+  // the words: the spec's places and sizes, the same on every card
+  g.fillStyle = K.ink; g.textBaseline = 'alphabetic';
+  const num = `No. ${String(card.number).padStart(2, '0')} / 12`;
+  g.font = '30px Inter'; g.textAlign = 'right'; g.fillText(num, W - 40, 108);
+  const numW = g.measureText(num).width;
+  g.textAlign = 'left'; fitFont(card.name, '400 PXpx Instrument', 76, W - 80 - numW - 30); g.fillText(card.name, 40, 110);
+  g.font = '30px Inter'; g.letterSpacing = '3px'; g.fillText(String(card.task || '').toUpperCase(), 40, 1212); g.letterSpacing = '0px';
+  g.fillStyle = K.pink; fitFont(card.moveName, 'italic 400 PXpx Instrument', 44, W - 80); g.fillText(card.moveName, 40, 1276);
+  g.fillStyle = K.ink; g.font = '30px Inter';
+  const lines = wrap(card.moveLine, W - 80); if (lines.length > 2) console.warn('too wide', card.moveLine);
+  lines.slice(0, 2).forEach((l, i) => g.fillText(l, 40, 1324 + i * 40));
+  g.font = '22px Inter'; g.textAlign = 'center'; g.fillText('Taskmarket Monsters · Set 1', W / 2, H - 30);
+  // the colour bar: the card's 4 inks, as on a print proof; the last is the maker's accent
+  [K.pink, '#10542E', K.ink, card.accent].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(W - 51 - (3 - i) * 30, H - 38, 11, 0, 2 * Math.PI); g.fill(); });
+}
+
+// ---- modes ------------------------------------------------------------------------------------------------------
+window.__seek = async t => { draw(loopView(t)); };
+let mode = 'loop', tilt = { tx: 0, ty: 0 }, lastInput = -1e9, t0 = performance.now();
+function tick(now) {
+  if (!RENDER && !exporting) {
+    const live = mode === 'tilt' || now - lastInput < 2500;
+    const tSec = ((now - t0) / 1000) % T;
+    const v = live ? tiltView(tilt.tx, tilt.ty, 2 * Math.PI * tSec / T) : loopView(tSec);
+    draw(v);
+    cv.style.transform = `rotateY(${v.tx * 10}deg) rotateX(${-v.ty * 10}deg)`;
+  }
+  requestAnimationFrame(tick);
+}
+cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); tilt = { tx: clamp(((e.clientX - r.left) / r.width - 0.5) * 2, -1, 1), ty: clamp(((e.clientY - r.top) / r.height - 0.5) * 2, -1, 1) }; lastInput = performance.now(); });
+document.getElementById('b-loop').onclick = () => { mode = 'loop'; lastInput = -1e9; t0 = performance.now(); };
+document.getElementById('b-gyro').onclick = async () => {
+  try { if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission && (await DeviceOrientationEvent.requestPermission()) !== 'granted') { status('Tilt was not allowed. Move your finger over the card instead.'); return; } } catch (e) { status('Tilt needs permission: ' + e.message); return; }
+  if (gyroOn) { mode = 'tilt'; return; }
+  gyroOn = true; mode = 'tilt'; let got = false;
+  setTimeout(() => { if (!got) { mode = 'loop'; status('No tilt sensor here. Move your mouse over the card.'); } }, 1500);
+  addEventListener('deviceorientation', e => { if (e.gamma == null) return; got = true; tilt = { tx: clamp(e.gamma / 30, -1, 1), ty: clamp((e.beta - 45) / 30, -1, 1) }; });
+  status('Tilt your phone.');
+};
+
+// ---- the panel: edit the card here, or in card.js --------------------------------------------------------------
+const $ = id => document.getElementById(id), status = s => { $('status').textContent = s; };
+$('f-number').add(new Option('Choose your number and task', 0));
+TASKS.forEach((t, i) => $('f-number').add(new Option(`No. ${String(i + 1).padStart(2, '0')}, ${t}`, i + 1)));
+FOILS.forEach(n => $('f-foil').add(new Option(n, n)));
+function fillPanel() { ['name', 'moveName', 'moveLine', 'accent', 'foil'].forEach(k => { $('f-' + k).value = card[k]; }); $('f-number').value = card.number; }
+['name', 'moveName', 'moveLine', 'accent'].forEach(k => $('f-' + k).addEventListener('input', e => { card[k] = e.target.value; touched.add(k); showProblems(); }));
+$('f-number').addEventListener('change', e => { touched.add('number'); card.number = +e.target.value; card.task = TASKS[card.number - 1] || ''; showProblems(); });
+$('f-foil').addEventListener('change', e => { touched.add('foil'); card.foil = e.target.value; rebuildPattern(); showProblems(); });
+const fromFile = async (input) => { const file = input.files[0]; if (!file) return null; try { return await loadImg(URL.createObjectURL(file)); } catch (e) { status('That file would not open as a picture. Use a PNG or JPG.'); return null; } };
+$('f-art').addEventListener('change', async e => {
+  art = await fromFile(e.target); artIsExample = false;
+  if (art) {   // a fresh card: any field still showing the example's words, or its number, is cleared, so they never ship
+    const ex = window.CARD || {}; let changed = false;
+    ['name', 'moveName', 'moveLine'].forEach(k => { if (!touched.has(k) && card[k] && card[k] === ex[k]) { card[k] = ''; changed = true; } });
+    if (!touched.has('number') && card.number === ex.number) { card.number = 0; card.task = ''; changed = true; }
+    if (changed) fillPanel();
+  }
+  const tip = !touched.has('accent') && !touched.has('foil') ? ' Tip: choose your own accent ink and foil pattern, so your card stands apart.' : '';
+  if (showProblems()) status('Monster loaded. Ready to export.' + tip);
+});
+$('f-mask').addEventListener('change', async e => { maskImg = await fromFile(e.target); card.foil = 'custom'; $('f-foil').value = 'custom'; rebuildPattern(); showProblems(); });
+let exporting = false, artIsExample = false, gyroOn = false;
+const touched = new Set();   // fields the maker has edited: picking a monster never clears these
+// the example card's own words (Glossa): they may not ship on a maker's card
+const EX_CARDS = [{ name: 'Glossa', moveName: 'Second Tongue', moveLine: 'Reads your brief once, then writes it again in any language.' },
+  { name: 'Gotcha', moveName: 'Line by Line', moveLine: 'Circles the line where the bug hides before anyone ships it.' }];
+const EX_LABEL = { name: 'name', moveName: 'move name', moveLine: 'move line' };
+
+// plain checks, run as you edit and before saving: the card must fit the set
+function problems() {
+  const p = [];
+  if (!EXAMPLE) Object.keys(EX_LABEL).forEach(k => { if (card[k] && EX_CARDS.some(ex => card[k].trim() === ex[k])) p.push(`That is an example card's ${EX_LABEL[k]}. Write your own.`); });
+  if (!(card.number >= 1)) p.push('Choose your number and task.');
+  if (card.foil === 'custom' && !maskImg) p.push('You chose a custom foil. Choose your mask with the mask picker, or pick a pattern.');
+  if (card.foil === 'custom' && !window.chrome && !RENDER) p.push('A custom foil mask needs Chrome or Edge. In this browser, pick a pattern instead.');
+  if (!document.fonts.check('76px Instrument') || !document.fonts.check('italic 44px Instrument') || !document.fonts.check('30px Inter'))
+    p.push("The card's fonts did not load, so its words would be wrong. Open the kit from https://lordsecretive.github.io/taskmarket-monsters-kit/ or run python3 -m http.server in its folder.");
+  const LABEL = { name: "monster's name", moveName: "move's name", moveLine: "move's line" };
+  Object.keys(LABEL).forEach(k => { if (!String(card[k] || '').trim()) p.push(`Fill in your ${LABEL[k]}.`); });
+  const words = card.moveLine.trim().split(/\s+/).filter(Boolean).length;
+  if (words > 12) p.push(`Your move line has ${words} words. Keep it to 12 or fewer.`);
+  g.font = '30px Inter'; if (wrap(card.moveLine, W - 80).length > 2) p.push('Your move line runs past 2 lines, so its end is cut off. Shorten it.');
+  g.font = '30px Inter'; const numW = g.measureText(`No. ${String(card.number).padStart(2, '0')} / 12`).width;
+  if (fitFont(card.name, '400 PXpx Instrument', 76, W - 80 - numW - 30) < 76) p.push('Your name is too long for the card, so the kit shrinks it. Shorten it.');
+  if (fitFont(card.moveName, 'italic 400 PXpx Instrument', 44, W - 80) < 44) p.push('Your move name is too long, so the kit shrinks it. Shorten it.');
+  if (!art) p.push('Choose your monster with the picker.');
+  else if (artIsExample && !EXAMPLE) p.push('That is the example monster. Choose yours with the picker (agents: set art in card.js).');
+  else {
+    const r = art.naturalWidth / art.naturalHeight;
+    if (r < 0.95 || r > 1.05) p.push(`Your monster is ${art.naturalWidth} x ${art.naturalHeight}. The window is square, so ${r < 1 ? 'its top and bottom' : 'its sides'} get cut off. Use a square image.`);
+    if (art.naturalWidth < 1000) p.push(`Your monster is ${art.naturalWidth} px wide, so it will look soft. Use 1024 px or larger.`);
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(card.accent)) p.push('Your accent ink needs to be a hex like #3A7BD5.');
+  return p;
+}
+const showProblems = () => { const p = problems(); status(p.join(' ')); return p.length === 0; };
+// Opened straight from disk (file://), browsers won't let a page save pictures it loaded from your disk. Choosing them
+// with the pickers, or serving the folder (python3 -m http.server), avoids that; render.py is never affected.
+const BLOCKED = 'Your browser blocks saving images opened straight from your disk. Choose your monster (and any mask) with the pickers, or run python3 render.py.';
+function canSave() { draw(loopView(0)); try { g.getImageData(0, 0, 1, 1); return true; } catch (e) { status(BLOCKED); return false; } }
+
+$('b-still').onclick = () => { if (!showProblems() || !canSave()) return; draw(loopView(STILL_T)); cv.toBlob(b => save(b, fileStem() + '.png'), 'image/png'); };
+const fileStem = () => `taskmarket-monster-${String(card.number).padStart(2, '0')}-${card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
+
+$('b-export').onclick = async () => {
+  if (!('VideoEncoder' in window)) { status('This browser cannot export video. Use Chrome, or run python3 render.py.'); return; }
+  if (!showProblems() || !canSave()) return;
+  exporting = true; $('b-export').disabled = true; cv.style.transform = '';
+  try {
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+    const cfg = { codec: 'avc1.640028', width: W, height: H, bitrate: 9_000_000, framerate: FPS };
+    if (!(await VideoEncoder.isConfigSupported(cfg)).supported) cfg.codec = 'avc1.42E028';   // baseline H.264, for browsers without high profile
+    if (!(await VideoEncoder.isConfigSupported(cfg)).supported) throw new Error('this browser cannot make H.264 video. Use Chrome on a computer, or run python3 render.py');
+    let encErr = null;
+    const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { encErr = e; } });
+    enc.configure(cfg);
+    for (let i = 0; i < FRAMES; i++) {
+      draw(loopView(i / FPS));
+      const frame = new VideoFrame(cv, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+      enc.encode(frame, { keyFrame: i % FPS === 0 }); frame.close();
+      while (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 4));   // keep memory low on phones and slow machines
+      if (i % 15 === 0) { status(`Exporting… ${Math.round(100 * i / FRAMES)}%`); await new Promise(r => setTimeout(r, 0)); }
+    }
+    await enc.flush(); if (encErr) throw encErr; muxer.finalize();
+    save(new Blob([muxer.target.buffer], { type: 'video/mp4' }), fileStem() + '.mp4');
+    status('Exported: a 6 s loop, 1080 x 1512, 30 fps.' + (window.chrome ? '' : ' This browser is not Chrome or Edge: check the words look right before you send it.'));
+  } catch (e) { status('Export failed: ' + e.message); }
+  exporting = false; $('b-export').disabled = false;
+};
+
+// ---- start ------------------------------------------------------------------------------------------------------
+(async () => {
+  try { await Promise.all([document.fonts.load('76px Instrument'), document.fonts.load('italic 44px Instrument'), document.fonts.load('30px Inter')]); } catch (e) { console.error('fonts: ' + e.message); }
+  try {
+    if (location.protocol === 'file:' && !RENDER) { card.art = ''; card.mask = ''; }   // opened from disk, a picture loaded this way would block saving for good
+    [art, maskImg] = await Promise.all([loadImg(card.art), loadImg(card.mask)]);
+    artIsExample = /(^|\/)examples\//.test(card.art);
+  } catch (e) { console.error(e.message); }
+  card.number = clamp(Math.round(+card.number || 1), 1, 12);
+  if (RENDER && card.task && card.task !== TASKS[card.number - 1]) console.warn(`Your number (${card.number}) is ${TASKS[card.number - 1]}, but your task says ${card.task}. Set number and task to match the Set 1 list.`);
+  card.task = TASKS[card.number - 1];   // the task always follows the number
+  rebuildPattern(); fillPanel();
+  if (RENDER) problems().forEach(m => console.warn(m)); else showProblems();
+  draw(loopView(0)); window.__ready = true;
+  if (!RENDER) requestAnimationFrame(tick);
+})();
+</script>
+</body></html>
