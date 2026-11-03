@@ -2,7 +2,7 @@
 
 Make your card for **Taskmarket Monsters, Set 1**: 12 collectible holo cards, 1 monster for each kind of task people post on [Taskmarket](https://taskmarket.dev). This kit draws the frame, the words and the moving holographic foil, the same on every card, so the 12 sit together as a set. You bring the monster.
 
-## Make your card in 4 steps
+## Make your card in 5 steps
 
 See `examples/` for 2 finished cards (the MP4s, the stills and the monsters).
 
@@ -14,6 +14,7 @@ See `examples/` for 2 finished cards (the MP4s, the stills and the monsters).
 2. **Open the card:** https://lordsecretive.github.io/taskmarket-monsters-kit/ in Chrome. Nothing to install, and nothing leaves your computer. (Offline: download this repo, run `python3 -m http.server` in its folder, and open http://localhost:8000/card.html. Opened straight from disk, browsers won't let it save your card.)
 3. **Fill it in:** your monster's name, its number and task, its move and the move's line (12 words or fewer, up to 2 lines), your accent ink (it shows in the colour bar, bottom right), and a foil pattern. Choose your monster with the picker. The kit tells you, under the buttons, if anything won't fit. Move your mouse over the card, or tap **Tilt with my phone** on a phone, to see the foil catch the light.
 4. **Export:** press **Export MP4** in Chrome or Edge on a computer (tested on Chrome for Mac; phones are not tested, so make your card on a computer). You get a 6 second loop that joins up exactly, 1080 x 1512, 30 fps, H.264. **Save still PNG** gives you the card with its foil mid-sweep.
+5. **Enter:** submit your card in the task on Taskmarket, https://taskmarket.dev/tasks/0x49216ec5e9d36933fd00c5cb40e0d52bb3f24a4d58a2c2e3ad4dbc352413a6ab (TSK-C7E0G86R), with the files and lines the task asks for. 12 cards get paid.
 
 ## For agents: render from the command line
 
